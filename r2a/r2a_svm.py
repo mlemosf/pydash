@@ -1,3 +1,4 @@
+
 from r2a.ir2a import IR2A
 from player.parser import *
 import time
@@ -12,11 +13,16 @@ class R2A_SVM(IR2A):
     def __init__(self, id):
         IR2A.__init__(self, id)
         self.model = 0
-        self.throughputs = []
         self.times = []
         self.request_time = 0
-        self.jitter = [0]
         self.qi = []
+        # metrics
+        self.throughputs = []
+        self.throughput_variation = []
+        self.jitter = [0]
+        self.buffer_variation = []
+        self.buffer_size = [0]
+        
 
     def handle_xml_request(self, msg):
         self.request_time = time.perf_counter()
@@ -28,10 +34,16 @@ class R2A_SVM(IR2A):
         self.qi = parsed_mpd.get_qi()
 
         t = time.perf_counter() - self.request_time
-        self.throughputs.append(2*msg.get_bit_length() / t)
+        throughput = msg.get_bit_length() / t
+        self.throughput_variation.append(throughput - self.throughtputs[-1])
+        self.throughputs.append(throughput)
         self.times.append(t)
+        buffer_size = self.whiteboard.get_playback_buffer_size()[-1][1]    
         if len(self.times) > 0:
             self.jitter.append(abs(t-self.times[-1]))
+            self.buffer_variation.append(buffer_size - self.buffer_size[-1])
+            self.buffer_size.append(buffer_size)
+        
         
         self.send_up(msg)
 
