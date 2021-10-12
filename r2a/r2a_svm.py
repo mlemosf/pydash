@@ -7,6 +7,7 @@ from sklearn import svm
 from pandas import DataFrame
 import numpy
 import pickle
+import logging
 
 class R2A_SVM(IR2A):
 
@@ -16,12 +17,16 @@ class R2A_SVM(IR2A):
         self.times = []
         self.request_time = 0
         self.qi = []
+
         # metrics
         self.throughputs = []
         self.throughput_variation = []
-        self.jitter = [0]
         self.buffer_variation = []
-        self.buffer_size = [0]
+        self.current_buffer_size = 0
+        self.current_bit_length = 0
+
+        # Logging
+        #logging.basicConfig(filename='/tmp/pydash.log', level=logging.DEBUG)
         
 
     def handle_xml_request(self, msg):
@@ -35,30 +40,20 @@ class R2A_SVM(IR2A):
 
         t = time.perf_counter() - self.request_time
         throughput = msg.get_bit_length() / t
-        self.throughput_variation.append(throughput - self.throughtputs[-1])
         self.throughputs.append(throughput)
-        self.times.append(t)
-        buffer_size = self.whiteboard.get_playback_buffer_size()[-1][1]    
-        if len(self.times) > 0:
-            self.jitter.append(abs(t-self.times[-1]))
-            self.buffer_variation.append(buffer_size - self.buffer_size[-1])
-            self.buffer_size.append(buffer_size)
-        
-        
+
         self.send_up(msg)
 
     def handle_segment_size_request(self, msg):
         self.request_time = time.perf_counter()
         avg = ema(self.throughputs, 10, 0.5)
-        print("Exponential Average chosen is", avg)
 
-        X = numpy.array([[msg.get_bit_length(), self.request_time]])
+        # Define o array com os valores usados na predição do SVM
+        X = numpy.array([
+            [self.current_bit_length, self.request_time, self.current_buffer_size]
+        ])
         prediction = self.model.predict(X)[0]
-        
         selected_qi = self.qi[prediction]
-        for i in self.qi:
-            if avg > i:
-                selected_qi = i
 
         msg.add_quality_id(selected_qi)
         self.send_down(msg)
@@ -66,13 +61,18 @@ class R2A_SVM(IR2A):
     def handle_segment_size_response(self, msg):
         t = time.perf_counter() - self.request_time
         self.throughputs.append(msg.get_bit_length() / t)
+
+        self.current_bit_length = msg.get_bit_length()
+        tmp = self.whiteboard.get_playback_buffer_size()
+        if len(tmp) > 0:
+            self.current_buffer_size = tmp[-1][1]
+
         self.send_up(msg)
 
     def initialize(self):
-        import logging
         self.model,_,_= pickle.load(open('r2a/svm.pkl', 'rb'))
-        
-        
+
+
     def finalization(self):
         pass
 
